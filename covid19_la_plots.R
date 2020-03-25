@@ -8,6 +8,7 @@ library(tidyverse)
 library(lubridate)
 library(cowplot)
 library(tools)
+library(ggthemes)
 
 # Grab daily data
 u <- "https://raw.githubusercontent.com/emmadoughty/Daily_COVID-19/master/Data/cases_by_utla.csv"
@@ -49,21 +50,30 @@ local_covid_plot <- function(la_name, data){
                aes(x = date,
                    y = new_cases)) +
     geom_bar(stat = "identity",
-             colour = "black") +
-    theme_bw() +
+             fill = "darkblue") +
+    theme_minimal() +
     labs(x = NULL,
          y = "New cases") +
-    theme(plot.caption = element_text(hjust = 0))
+    scale_y_continuous(breaks  = seq(1, max(d$new_cases), by = 1)) +
+    theme(panel.ontop = TRUE,
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.major.y = element_line(size = 0.5, colour = "white"),
+          panel.grid.minor.y = element_line(size = 0.5, colour = "white"))
   
   g2 <- ggplot(data = d,
                aes(x = date,
                    y = confirm)) +
     geom_bar(stat = "identity",
-             colour = "black") +
-    theme_bw() +
+             fill = "darkblue") +
+    theme_minimal() +
     labs(x = NULL,
          y = "Total cases") +
-    theme(plot.caption = element_text(hjust = 0))
+    theme(panel.ontop = TRUE,
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.major.y = element_line(size = 0.5, colour = "white"),
+          panel.grid.minor.y = element_line(size = 0.5, colour = "white"))
   
   g_title <- ggplot() +
     labs(title = "Confirmed cases of COVID-19",
