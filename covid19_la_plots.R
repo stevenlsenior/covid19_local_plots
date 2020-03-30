@@ -105,3 +105,34 @@ local_covid_plot <- function(la_name, data){
 # Initial plot for bury
 local_covid_plot(data = d, la_name = "bury")
 
+# Function to find doubling time - poisson model
+# Estimate proportion increase in rate of new cases daily
+# Then calculate doubling time 
+
+local_doubling_time <- function(data = d, 
+                                la_name = "bury",
+                                n_days = today() - dmy("16/03/2020")
+                                ){
+  # Fit a poisson model
+  m <- glm(new_cases ~ date,
+           data = filter(d, 
+                         UTLA == la_name, 
+                         date > today() - n_days),
+           family = poisson)
+  
+  # Make a plot
+  g <- ggplot(aes(x = date),
+              data = m$data) +
+    geom_line(aes(y = new_cases)) +
+    geom_line(aes(y = m$fitted.values),
+              linetype = 2)
+  
+  print(g)
+  
+  # Calculate doubling time
+  t_dbl <- log(2)/coef(m)[2]
+  
+  return(list(g, t_dbl))
+}
+
+

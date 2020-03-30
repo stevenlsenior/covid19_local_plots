@@ -41,6 +41,12 @@ ui <- fluidPage(
                         choices = sort(unique(d$UTLA)),
                         selected = "bury"),
             
+            numericInput("numdays",
+                         "Select number of days' data to use to estimate doubling rate",
+                         value = as.numeric(today() - dmy("16/03/2020")),
+                         min = 10,
+                         step = 1),
+            
             h4("Instructions:"),
             
             p("Select a local authority (a local government area in England). 
@@ -77,7 +83,8 @@ ui <- fluidPage(
         # Show a plot of the generated distribution
         mainPanel(
            plotOutput("la_case_plot"),
-           textOutput("summary")
+           textOutput("summary"),
+           textOutput("doubletime")
         )
 
     )
@@ -168,6 +175,39 @@ server <- function(input, output) {
                       " cases on the previous day."))
         
     }
+    
+    # Function to find doubling time - poisson model
+    # Estimate proportion increase in rate of new cases daily
+    # Then calculate doubling time 
+    
+    local_doubling_time <- function(data = d, 
+                                    la_name = "bury",
+                                    n_days = 10)
+    {
+        
+        # Filter data to single local authority
+        d <- filter(data, UTLA == la_name) %>%
+            mutate(new_cases = case_when(
+                new_cases < 0 ~ 0,
+                new_cases >= 0 ~ new_cases
+            ))
+        
+        d$new_cases[1] <- d$confirm[1]
+        
+        # Fit a poisson model
+        m <- glm(new_cases ~ date,
+                 data = filter(d, date > today() - n_days),
+                 family = poisson)
+        
+        # Calculate doubling time
+        t_dbl <- log(2)/coef(m)[2]
+        
+        return(paste0("Based on data from the last ",
+                      n_days,
+                      " the number of new confirmed cases is doubling approximately every ",
+                      round(t_dbl, digits = 1),
+                      " days."))
+    }
 
     output$la_case_plot <- renderPlot({
 
@@ -177,7 +217,14 @@ server <- function(input, output) {
     
     output$summary <- renderText({
         # get the summary
-        local_daily_covid(data = d, la_name = input$la)
+        local_daily_covid(data = d, 
+                          la_name = input$la)
+    })
+    
+    output$doubletime <- renderText({
+        local_doubling_time(data = d, 
+                            la_name = input$la,
+                            n_days = input$numdays)
     })
 }
 
