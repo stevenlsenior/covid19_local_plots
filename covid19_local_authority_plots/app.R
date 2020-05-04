@@ -5,26 +5,23 @@ library(lubridate)
 library(cowplot)
 library(tools)
 
+# Source functions for getting data
+source("covid19_getdata.R")
+
 # Grab daily data
-u <- "https://raw.githubusercontent.com/emmadoughty/Daily_COVID-19/master/Data/cases_by_utla.csv"
+json <- fetch_datafile()
+d1 <- get_cumulative_cases_utla(json = json) %>%
+      select(-value_name, -area_type) %>%
+      rename(cum_cases = number)
 
-download.file(url = u,
-              destfile = "coivd19_daily_cases.csv",
-              method = "curl")
 
-d <- read.csv("coivd19_daily_cases.csv",
-              header = TRUE,
-              stringsAsFactors = FALSE)
+d2 <- get_daily_cases_utla(json = json) %>%
+      select(-value_name, -area_type, -area_name) %>%
+      rename(new_cases = number)
 
-d <- d %>%
-    mutate(date = dmy(date),
-           confirm = as.numeric(confirm)) %>%
-    mutate_if(is.character, tolower) %>%
-    group_by(UTLA) %>%
-    mutate(new_cases = confirm - lag(confirm))
+d <- merge(d1, d2, by = c("date", "area_code"))
 
-# Fix specific issue in Bury cases
-d$confirm[d$date == dmy("07/03/2020") & d$UTLA == "bury"] <- 3
+rm(d1, d2)
 
 
 # Define UI for application that draws a histogram
@@ -38,14 +35,8 @@ ui <- fluidPage(
         sidebarPanel(
             selectInput("la",
                         "Select a local authority",
-                        choices = sort(unique(d$UTLA)),
-                        selected = "bury"),
-            
-            numericInput("numdays",
-                         "Select number of days' data to use to estimate doubling rate",
-                         value = as.numeric(today() - dmy("16/03/2020")),
-                         min = 10,
-                         step = 1),
+                        choices = sort(unique(d$area_name)),
+                        selected = "Bury"),
             
             h4("Instructions:"),
             
@@ -57,8 +48,7 @@ ui <- fluidPage(
             
             p("This app produces simple plots of the numbers of confirmed cases of
               COVID-19, as reported on the PHE COVID-19 tracker. The data used is
-              drawn from a GitHub repository by Emma Doughty, who has been collating
-              the daily cases by local authority."),
+              drawn from a the PHE data using a script written by Oli Hawkins."),
             
             h4("Caveats:"),
             
@@ -75,16 +65,15 @@ ui <- fluidPage(
             
             p(),
             
-            a(href = "https://github.com/emmadoughty/Daily_COVID-19",
-              "Link to Emma Doughty's excellent repository on GitHub")
+            a(href = "https://gist.github.com/olihawkins/6962c6df563e3dbea8917dbf6fd4ab01",
+              "Link to Oli Hawkins's excellent script on GitHub")
             
         ),
 
         # Show a plot of the generated distribution
         mainPanel(
            plotOutput("la_case_plot"),
-           textOutput("summary"),
-           textOutput("doubletime")
+           textOutput("summary")
         )
 
     )
@@ -95,17 +84,9 @@ server <- function(input, output) {
     
     # Function for plotting
     local_covid_plot <- function(la_name, data){
-        # Ensure names are all lower case
-        la_name <- tolower(la_name)
-        
+
         # Filter data to single local authority
-        d <- filter(data, UTLA == la_name) %>%
-             mutate(new_cases = case_when(
-                new_cases < 0 ~ 0,
-                new_cases >= 0 ~ new_cases
-            ))
-        
-        d$new_cases[1] <- d$confirm[1]
+        d <- filter(data, area_name == la_name) 
         
         # Make a plot
         g1 <- ggplot(data = d,
@@ -126,7 +107,7 @@ server <- function(input, output) {
         
         g2 <- ggplot(data = d,
                      aes(x = date,
-                         y = confirm)) +
+                         y = cum_cases)) +
             geom_bar(stat = "identity",
                      fill = "darkblue") +
             theme_minimal() +
@@ -152,14 +133,10 @@ server <- function(input, output) {
         la_name <- tolower(la_name)
         
         # Filter data to single local authority
-        d <- filter(data, UTLA == la_name) %>%
-             mutate(new_cases = case_when(
-                    new_cases < 0 ~ 0,
-                    new_cases >= 0 ~ new_cases
-            ))
+        d <- filter(data, area_name == la_name) 
     
         # Get total cases, new cases,
-        total <- d$confirm[d$date == max(d$date)]
+        total <- d$cum_cases[d$date == max(d$date)]
         new <- d$new_cases[d$date == max(d$date)]
         date <- max(d$date)
         
@@ -175,42 +152,8 @@ server <- function(input, output) {
                       " cases on the previous day."))
         
     }
-    
-    # Function to find doubling time - poisson model
-    # Estimate proportion increase in rate of new cases daily
-    # Then calculate doubling time 
-    
-    local_doubling_time <- function(data = d, 
-                                    la_name = "bury",
-                                    n_days = 10)
-    {
-        
-        # Filter data to single local authority
-        d <- filter(data, UTLA == la_name) %>%
-            mutate(new_cases = case_when(
-                new_cases < 0 ~ 0,
-                new_cases >= 0 ~ new_cases
-            ))
-        
-        d$new_cases[1] <- d$confirm[1]
-        
-        # Fit a poisson model
-        m <- glm(new_cases ~ date,
-                 data = filter(d, date > today() - n_days),
-                 family = poisson)
-        
-        # Calculate doubling time
-        t_dbl <- log(2)/coef(m)[2]
-        
-        return(paste0("Based on data from the last ",
-                      n_days,
-                      " the number of new confirmed cases is doubling approximately every ",
-                      round(t_dbl, digits = 1),
-                      " days."))
-    }
 
     output$la_case_plot <- renderPlot({
-
         # draw the plot
         local_covid_plot(data = d, la_name = input$la)
     })
@@ -220,12 +163,7 @@ server <- function(input, output) {
         local_daily_covid(data = d, 
                           la_name = input$la)
     })
-    
-    output$doubletime <- renderText({
-        local_doubling_time(data = d, 
-                            la_name = input$la,
-                            n_days = input$numdays)
-    })
+
 }
 
 # Run the application 

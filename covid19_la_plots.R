@@ -26,7 +26,8 @@ d <- d %>%
          confirm = as.numeric(confirm)) %>%
   mutate_if(is.character, tolower) %>%
   group_by(UTLA) %>%
-  mutate(new_cases = confirm - lag(confirm))
+  mutate(new_cases = confirm - lag(confirm)) %>%
+  ungroup()
 
 # Fix specific issue in Bury cases
 d$confirm[d$date == dmy("07/03/2020") & d$UTLA == "bury"] <- 3
