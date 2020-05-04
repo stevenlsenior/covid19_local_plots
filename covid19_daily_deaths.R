@@ -46,7 +46,7 @@ covid_deaths_plot <- function(area = "Bury", cause = c("All causes", "COVID 19")
                   colour = place_of_death)) +
        geom_point() +
        geom_smooth(se = FALSE) +
-       facet_grid(cols = vars(cause_of_death)) +
+       #if(length(cause) > 1){facet_grid(cols = vars(cause_of_death)) +
        theme_classic() +
        labs(x = "week number",
             y = "no. of deaths",
