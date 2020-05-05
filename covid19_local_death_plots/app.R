@@ -54,7 +54,11 @@ ui <- fluidPage(
             checkboxGroupInput(inputId = "place",
                                label = "Choose place(s) of death to compare",
                                choices = sort(unique(deaths$place_of_death)),
-                               selected = c("Care home", "Hospital", "Home"))
+                               selected = c("Care home", "Hospital", "Home")),
+            
+            checkboxInput(inputId = "smooth",
+                          value = TRUE,
+                          label = "Show smoothed trendline?")
 
         ),
 
@@ -83,8 +87,10 @@ server <- function(input, output) {
                    group = place_of_death,
                    colour = place_of_death)) +
             geom_point() +
-            geom_smooth(se = FALSE,
-                        linetype = 1) +
+            stat_smooth(geom = "line",
+                        se = FALSE,
+                        linetype = 1,
+                        alpha = as.numeric(input$smooth)) +
             theme_classic() +
             labs(x = "week number",
                  y = "no. of deaths",
