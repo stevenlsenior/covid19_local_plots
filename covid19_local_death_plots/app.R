@@ -5,6 +5,7 @@
 library(shiny)
 require(tidyverse)
 require(readxl)
+library(lubridate)
 
 # Get current week number
 now <- today()
@@ -60,7 +61,8 @@ ui <- fluidPage(
         # Show a plot of the generated distribution
         mainPanel(
             mainPanel(
-                plotOutput("la_death_plot"),
+                plotOutput("la_death_plot_2"),
+                plotOutput("la_death_plot_1"),
                 width = 12
             )
         )
@@ -70,7 +72,7 @@ ui <- fluidPage(
 # Define server logic required to draw the plot
 server <- function(input, output) {
     
-    output$la_death_plot <- renderPlot({
+    output$la_death_plot_1 <- renderPlot({
         # draw the plot
         ggplot(data = filter(deaths, 
                              area_name == input$area,
@@ -82,11 +84,46 @@ server <- function(input, output) {
                    colour = place_of_death)) +
             geom_point() +
             geom_smooth(se = FALSE,
-                        linetype = 3) +
+                        linetype = 1) +
             theme_classic() +
             labs(x = "week number",
                  y = "no. of deaths",
                  colour = "place of death",
+                 title = paste0("Deaths due to ",
+                                input$cause,
+                                " in ",
+                                input$area,
+                                " by week number"),
+                 caption = "Data source: ONS.") +
+            theme(plot.title = element_text(face = "bold", size = 14),
+                  axis.title = element_text(size = 12),
+                  axis.text = element_text(size = 12),
+                  plot.caption = element_text(hjust = 0, size = 12),
+                  legend.title = element_text(face = "bold", size = 12),
+                  legend.text = element_text(size = 12))
+    })
+    
+    output$la_death_plot_2 <- renderPlot({
+        # Tabulate deaths due to selected cause in selected area
+        death_table <- deaths %>% 
+            filter(cause_of_death == input$cause,
+                   area_name == input$area,
+                   place_of_death %in% input$place) %>%
+            group_by(place_of_death) %>%
+            summarise(total_deaths = sum(number_of_deaths))
+        
+        # Plot the deaths by cause
+        ggplot(data = death_table,
+               aes(x = place_of_death,
+                   y = total_deaths,
+                   colour = place_of_death,
+                   fill = place_of_death)) +
+            geom_bar(stat = "identity") +
+            theme_classic() +
+            guides(fill = FALSE,
+                   colour = FALSE) +
+            labs(x = NULL,
+                 y = "no. of deaths",
                  title = paste0("Deaths due to ",
                                 input$cause,
                                 " in ",

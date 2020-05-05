@@ -65,3 +65,12 @@ covid_deaths_plot <- function(area = "Bury", cause = c("All causes", "COVID 19")
 
 # Plot for Bury
 covid_deaths_plot(area = "Bury")
+
+# Table of total deaths
+death_table <- deaths %>% 
+  filter(cause_of_death == "COVID 19") %>%
+  group_by(area_name, place_of_death) %>%
+  summarise(covid_deaths = sum(number_of_deaths))
+
+View(death_table)
+  

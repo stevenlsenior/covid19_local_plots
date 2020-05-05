@@ -1,14 +1,15 @@
 # load packages
-library(shiny); 
+library(shiny)
 library(tidyverse)
 library(lubridate)
 library(cowplot)
 library(tools)
+library(readxl)
 
 # Source functions for getting data
 source("covid19_getdata.R")
 
-# Grab daily data
+# Grab daily cases data
 json <- fetch_datafile()
 d1 <- get_cumulative_cases_utla(json = json) %>%
       select(-value_name, -area_type) %>%
@@ -22,6 +23,33 @@ d2 <- get_daily_cases_utla(json = json) %>%
 d <- merge(d1, d2, by = c("date", "area_code"))
 
 rm(d1, d2)
+
+# Get deaths data from ONS
+
+# Get current week number
+now <- today()
+week_no <- week(now)
+
+# URL for data set 
+u <- paste0("https://www.ons.gov.uk/file?uri=%2fpeoplepopulationandcommunity%2fhealthandsocialcare%2fcausesofdeath%2fdatasets%2fdeathregistrationsandoccurrencesbylocalauthorityandhealthboard%2f2020/lahbtablesweek",
+            week_no - 2, # 2 week delay on data
+            "new.xlsx")
+
+# Download file
+download.file(url = u,
+              destfile = "covid19_deaths.xlsx",
+              method = "curl",
+              mode = "wb")
+
+# LOAD DATA
+deaths <- read_excel(path = "covid19_deaths.xlsx",
+                     sheet = 6,
+                     skip = 3,
+                     col_names = TRUE)
+
+# Sort out variable names: lower case, no spaces
+names(deaths) <- gsub(" ", "_", names(deaths))
+names(deaths) <- tolower(names(deaths))
 
 
 # Define UI for application that draws a histogram
