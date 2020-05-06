@@ -13,7 +13,7 @@ week_no <- week(now)
 
 # URL for data set 
 u <- paste0("https://www.ons.gov.uk/file?uri=%2fpeoplepopulationandcommunity%2fhealthandsocialcare%2fcausesofdeath%2fdatasets%2fdeathregistrationsandoccurrencesbylocalauthorityandhealthboard%2f2020/lahbtablesweek",
-            week_no - 2, # 2 week delay on data
+            week_no - 3, # 2 week delay on data
             "new.xlsx")
 
 # Download file
