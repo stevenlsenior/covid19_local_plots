@@ -7,13 +7,34 @@ require(tidyverse)
 require(readxl)
 library(lubridate)
 
+#### Cases ####
+source("covid19_getdata.R")
+
+# Grab daily cases data
+json <- fetch_datafile()
+
+d1 <- get_cumulative_cases_utla(json = json) %>%
+    select(-value_name, -area_type) %>%
+    rename(cum_cases = number)
+
+
+d2 <- get_daily_cases_utla(json = json) %>%
+    select(-value_name, -area_type, -area_name) %>%
+    rename(new_cases = number)
+
+cases <- merge(d1, d2, by = c("date", "area_code"))
+
+rm(d1, d2)
+
+#### Deaths ####
+
 # Get current week number
 now <- today()
 week_no <- week(now)
 
 # URL for data set 
 u <- paste0("https://www.ons.gov.uk/file?uri=%2fpeoplepopulationandcommunity%2fhealthandsocialcare%2fcausesofdeath%2fdatasets%2fdeathregistrationsandoccurrencesbylocalauthorityandhealthboard%2f2020/lahbtablesweek",
-            week_no - 3, # 2 week delay on data
+            week_no - 3, # 2-3 week delay on data
             "new.xlsx")
 
 # Download file
@@ -65,8 +86,10 @@ ui <- fluidPage(
         # Show a plot of the generated distribution
         mainPanel(
             mainPanel(
-                plotOutput("la_death_plot_2"),
-                plotOutput("la_death_plot_1"),
+                plotOutput("la_case_plot"),
+                p(" "),
+                plotOutput("la_death_plot"),
+                p(" "),
                 width = 12
             )
         )
@@ -76,16 +99,110 @@ ui <- fluidPage(
 # Define server logic required to draw the plot
 server <- function(input, output) {
     
-    output$la_death_plot_1 <- renderPlot({
+    # Function for plotting
+    
+    output$la_case_plot <- renderPlot({
+        
         # draw the plot
-        ggplot(data = filter(deaths, 
-                             area_name == input$area,
-                             cause_of_death == input$cause,
-                             place_of_death %in% input$place),
-               aes(x = week_number,
-                   y = number_of_deaths,
-                   group = place_of_death,
-                   colour = place_of_death)) +
+        g_case_1 <- ggplot(data = filter(cases, area_name == input$area),
+                     aes(x = date,
+                         y = new_cases)) +
+            geom_bar(stat = "identity",
+                     fill = "darkblue") +
+            geom_smooth() +
+            labs(x = NULL,
+                 y = NULL,
+                 title = paste0("New confirmed cases of COVID-19 in ",
+                                input$area,
+                                " by date")) +
+            theme_classic() +
+            theme(plot.title = element_text(face = "bold", size = 14),
+                  axis.title = element_text(size = 12),
+                  axis.text = element_text(size = 12),
+                  legend.title = element_text(face = "bold", size = 12),
+                  legend.text = element_text(size = 12))
+            
+        
+        g_case_2 <- ggplot(data = filter(cases, area_name == input$area),
+                     aes(x = date,
+                         y = cum_cases)) +
+            geom_bar(stat = "identity",
+                     fill = "darkblue") +
+            geom_smooth() +
+            labs(x = NULL,
+                 y = NULL,
+                 title = paste0("Total confirmed cases of COVID-19 in ",
+                                input$area,
+                                " by date")) +
+            theme_classic() +
+            theme(plot.title = element_text(face = "bold", size = 14),
+                  axis.title = element_text(size = 12),
+                  axis.text = element_text(size = 12),
+                  legend.title = element_text(face = "bold", size = 12),
+                  legend.text = element_text(size = 12))
+        
+        g_case_title <- ggplot() +
+                        labs(title = paste0("Confirmed cases of COVID-19 in ", input$area)) +
+                        theme_classic() +
+                        theme(plot.title = element_text(size = 14, face = "bold"))
+        
+        g_case_capt <- ggplot() + 
+                       labs(caption = "Data source: PHE.") +
+                       theme_classic() +
+                       theme(plot.caption = element_text(size = 12))
+        
+        g_case <- plot_grid(g_case_1, g_case_2, ncol = 1, labels = "AUTO")
+        
+        plot_grid(g_case_title, g_case, g_case_capt, ncol = 1, rel_heights = c(0.08, 1, 0.05))
+    })
+    
+    output$la_death_plot <- renderPlot({
+        # Tabulate deaths due to selected cause in selected area
+        death_table <- deaths %>% 
+            filter(cause_of_death == input$cause,
+                   area_name == input$area,
+                   place_of_death %in% input$place) %>%
+            group_by(place_of_death) %>%
+            summarise(total_deaths = sum(number_of_deaths))
+        
+        death_totals <- deaths %>%
+            filter(cause_of_death == input$cause,
+                   area_name == input$area) %>%
+            group_by(week_number) %>%
+            summarise(total_deaths = sum(number_of_deaths))
+            
+        # Plot the deaths by cause
+        g_death_0 <- ggplot(data = death_totals,
+                     aes(x = week_number,
+                         y = total_deaths)) +
+              geom_point(colour = 9) +
+              stat_smooth(geom = "line",
+                          se = FALSE,
+                          alpha = as.numeric(input$smooth),
+                          colour = 9) +
+              labs(x = "week number",
+                   y = "no. of deaths",
+                   title = paste0("Total deaths due to ",
+                                  input$cause,
+                                  " in ",
+                                  input$area,
+                                  " by week number")) +
+              guides(colour = FALSE) +
+              theme_classic() +
+              theme(plot.title = element_text(face = "bold", size = 14),
+                    axis.title = element_text(size = 12),
+                    axis.text = element_text(size = 12),
+                    legend.title = element_text(face = "bold", size = 12),
+                    legend.text = element_text(size = 12))
+        
+        g_death_1 <- ggplot(data = filter(deaths, 
+                                   area_name == input$area,
+                                   cause_of_death == input$cause,
+                                   place_of_death %in% input$place),
+                     aes(x = week_number,
+                         y = number_of_deaths,
+                         group = place_of_death,
+                         colour = place_of_death)) +
             geom_point() +
             stat_smooth(geom = "line",
                         se = FALSE,
@@ -99,27 +216,14 @@ server <- function(input, output) {
                                 input$cause,
                                 " in ",
                                 input$area,
-                                " by week number"),
-                 caption = "Data source: ONS.") +
+                                " by place of death and week number")) +
             theme(plot.title = element_text(face = "bold", size = 14),
                   axis.title = element_text(size = 12),
                   axis.text = element_text(size = 12),
-                  plot.caption = element_text(hjust = 0, size = 12),
                   legend.title = element_text(face = "bold", size = 12),
                   legend.text = element_text(size = 12))
-    })
-    
-    output$la_death_plot_2 <- renderPlot({
-        # Tabulate deaths due to selected cause in selected area
-        death_table <- deaths %>% 
-            filter(cause_of_death == input$cause,
-                   area_name == input$area,
-                   place_of_death %in% input$place) %>%
-            group_by(place_of_death) %>%
-            summarise(total_deaths = sum(number_of_deaths))
-        
-        # Plot the deaths by cause
-        ggplot(data = death_table,
+
+        g_death_2 <- ggplot(data = death_table,
                aes(x = place_of_death,
                    y = total_deaths,
                    colour = place_of_death,
@@ -133,14 +237,27 @@ server <- function(input, output) {
                  title = paste0("Deaths due to ",
                                 input$cause,
                                 " in ",
-                                input$area),
-                 caption = "Data source: ONS.") +
+                                input$area,
+                                " by place of death")) +
             theme(plot.title = element_text(face = "bold", size = 14),
                   axis.title = element_text(size = 12),
                   axis.text = element_text(size = 12),
-                  plot.caption = element_text(hjust = 0, size = 12),
                   legend.title = element_text(face = "bold", size = 12),
                   legend.text = element_text(size = 12))
+        
+        g_death_title <- ggplot() +
+            labs(title = paste0("Deaths attributed to COVID-19 in ", input$area)) +
+            theme_classic() +
+            theme(plot.title = element_text(size = 14, face = "bold"))
+        
+        g_death_capt <- ggplot() + 
+            labs(caption = "Data source: ONS.") +
+            theme_classic() +
+            theme(plot.caption = element_text(hjust = 0, size = 12))
+        
+        g_death <- plot_grid(g_death_0, g_death_1, g_death_2, ncol = 1, labels = "AUTO")
+        
+        plot_grid(g_death_title, g_death, g_death_capt, ncol = 1, rel_heights = c(0.08, 1, 0.05))
     })
     
 }

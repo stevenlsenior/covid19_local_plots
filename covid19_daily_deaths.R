@@ -74,3 +74,98 @@ death_table <- deaths %>%
 
 View(death_table)
   
+death_table <- deaths %>% 
+  filter(cause_of_death == "COVID 19",
+         area_name == "Bury") %>%
+  group_by(place_of_death) %>%
+  summarise(total_deaths = sum(number_of_deaths))
+
+death_totals <- deaths %>%
+  filter(cause_of_death == "COVID 19",
+         area_name == "Bury") %>%
+  group_by(week_number) %>%
+  summarise(total_deaths = sum(number_of_deaths))
+
+# Plot the deaths by cause
+g0 <- ggplot(data = death_totals,
+             aes(x = week_number,
+                 y = total_deaths)) +
+  geom_point() +
+  stat_smooth(geom = "line",
+              se = FALSE,
+              alpha = as.numeric(smooth),
+              colour = 7) +
+  labs(x = "week number",
+       y = "no. of deaths",
+       title = paste0("Total deaths due to ",
+                      "COVID 19",
+                      " in ",
+                      "Bury",
+                      " by week number")) +
+  guides(colour = FALSE) +
+  theme_classic() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 12),
+        legend.title = element_text(face = "bold", size = 12),
+        legend.text = element_text(size = 12))
+
+
+g1 <- ggplot(data = death_table,
+             aes(x = place_of_death,
+                 y = total_deaths,
+                 colour = place_of_death,
+                 fill = place_of_death)) +
+  geom_bar(stat = "identity") +
+  theme_classic() +
+  guides(fill = FALSE,
+         colour = FALSE) +
+  labs(x = NULL,
+       y = "no. of deaths",
+       title = paste0("Deaths due to ",
+                      input$cause,
+                      " in ",
+                      input$area,
+                      " by place of death")) +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 12),
+        legend.title = element_text(face = "bold", size = 12),
+        legend.text = element_text(size = 12))
+
+g2 <- ggplot(data = filter(deaths, 
+                           area_name == input$area,
+                           cause_of_death == input$cause,
+                           place_of_death %in% input$place),
+             aes(x = week_number,
+                 y = number_of_deaths,
+                 group = place_of_death,
+                 colour = place_of_death)) +
+  geom_point() +
+  stat_smooth(geom = "line",
+              se = FALSE,
+              linetype = 1,
+              alpha = as.numeric(input$smooth)) +
+  theme_classic() +
+  labs(x = "week number",
+       y = "no. of deaths",
+       colour = "place of death",
+       title = paste0("Deaths due to ",
+                      input$cause,
+                      " in ",
+                      input$area,
+                      " by place of death and week number")) +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 12),
+        legend.title = element_text(face = "bold", size = 12),
+        legend.text = element_text(size = 12))
+
+g_capt <- ggplot() + 
+  labs(caption = "Data source: ONS.") +
+  theme_classic() +
+  theme(plot.caption = element_text(hjust = 0, size = 12))
+
+g <- plot_grid(g0, g1, g2, ncol = 1, labels = "AUTO")
+
+plot_grid(g, g_capt, ncol = 1, rel_heights = c(1, 0.05))
