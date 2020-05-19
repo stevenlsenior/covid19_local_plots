@@ -1,4 +1,3 @@
-# Script created by Oli Hawkins and shared here: https://gist.github.com/olihawkins/6962c6df563e3dbea8917dbf6fd4ab01
 # Functions to download data on Coronavirus cases in the UK by country, 
 # region, and in England by local authority from the PHE dashboard API.
 #
@@ -27,40 +26,18 @@ library(tidyr)
 
 # Constants ------------------------------------------------------------------
 
-METADATA_URL <- "https://publicdashacc.blob.core.windows.net/publicdata?restype=container&comp=list"
-DATA_URL <- "https://c19pub.azureedge.net/"
+COUNTRIES_URL <- "https://c19downloads.azureedge.net/downloads/data/countries_latest.json"
+REGIONS_URL <- "https://c19downloads.azureedge.net/downloads/data/regions_latest.json"
+UTLAS_URL <- "https://c19downloads.azureedge.net/downloads/data/utlas_latest.json"
 MIN_DATE_CASES <- as.Date("2020-01-30")
 MIN_DATE_DAILY_DEATHS <- as.Date("2020-03-28")
 MIN_DATE_CUMULATIVE_DEATHS <- as.Date("2020-03-27")
 
 # Functions ------------------------------------------------------------------
 
-fetch_datafile_url <- function() {
-  
-  # Find the latest datafile in the XML feed
-  file_names <- read_xml(METADATA_URL) %>% 
-    xml_nodes("Name") %>% 
-    xml_text()
-  
-  file_dates <- read_xml(METADATA_URL) %>% 
-    xml_nodes("Last-Modified") %>% 
-    xml_text()
-  
-  files <- tibble(
-    name = file_names,
-    date = parse_date_time(file_dates, orders = "dmy HMS")) %>% 
-    filter(grepl("^data_.*", name)) %>% 
-    arrange(desc(date))
-  
-  # This chooses the most recent data file. To download earlier data files
-  # increment the row number accordingly. 
-  paste0(DATA_URL, files[1, ]$name)
-}
-
-fetch_datafile <- function() {
+fetch_datafile <- function(datafile_url) {
   
   # Get the json at the datafile url and parse it
-  datafile_url <- fetch_datafile_url()
   response <- GET(datafile_url)
   text <- content(response, "text", encoding = "UTF-8")
   fromJSON(text)
@@ -77,18 +54,8 @@ get_data_for_geography <- function(
   # For a given geography, get the data of the given value type for each area
   map2_dfr(names(json), json, function(code, data) {
     
-    # If the value type is missing for this area, skip and report.
-    # Cases data for Scotland, Wales and NI is only sometimes present.
-    if (! value_type %in% names(data)) {
-      
-      message(paste(
-        value_type, 
-        "not published for", 
-        code, 
-        data$name$value))
-      
-      return(tibble())
-    }        
+    # If the value type is missing for this json key, skip.
+    if (! value_type %in% names(data)) return(tibble())
     
     # Otherwise set up the tibble
     df <- as_tibble(data[[value_type]]) %>% 
@@ -145,7 +112,7 @@ get_data_for_geography <- function(
 
 get_daily_cases_country <- function(json, fill_missing = TRUE) {
   get_data_for_geography(
-    json$countries, 
+    fetch_datafile(COUNTRIES_URL), 
     "dailyConfirmedCases", 
     "cases",
     "country",
@@ -155,7 +122,7 @@ get_daily_cases_country <- function(json, fill_missing = TRUE) {
 
 get_daily_cases_region <- function(json, fill_missing = TRUE) {
   get_data_for_geography(
-    json$regions,
+    fetch_datafile(REGIONS_URL),
     "dailyConfirmedCases",
     "cases",
     "region",
@@ -165,7 +132,7 @@ get_daily_cases_region <- function(json, fill_missing = TRUE) {
 
 get_daily_cases_utla <- function(json, fill_missing = TRUE) {
   get_data_for_geography(
-    json$utlas,
+    fetch_datafile(UTLAS_URL),
     "dailyConfirmedCases",
     "cases",
     "utla",
@@ -177,7 +144,7 @@ get_daily_cases_utla <- function(json, fill_missing = TRUE) {
 
 get_cumulative_cases_country <- function(json, fill_missing = TRUE) {
   get_data_for_geography(
-    json$countries, 
+    fetch_datafile(COUNTRIES_URL), 
     "dailyTotalConfirmedCases", 
     "cases",
     "country",
@@ -187,7 +154,7 @@ get_cumulative_cases_country <- function(json, fill_missing = TRUE) {
 
 get_cumulative_cases_region <- function(json, fill_missing = TRUE) {
   get_data_for_geography(
-    json$regions,
+    fetch_datafile(REGIONS_URL),
     "dailyTotalConfirmedCases",
     "cases",
     "region", 
@@ -197,7 +164,7 @@ get_cumulative_cases_region <- function(json, fill_missing = TRUE) {
 
 get_cumulative_cases_utla <- function(json, fill_missing = TRUE) {
   get_data_for_geography(
-    json$utlas,
+    fetch_datafile(UTLAS_URL),
     "dailyTotalConfirmedCases",
     "cases",
     "utla", 
@@ -209,7 +176,7 @@ get_cumulative_cases_utla <- function(json, fill_missing = TRUE) {
 
 get_daily_deaths_country <- function(json, fill_missing = TRUE) {
   get_data_for_geography(
-    json$countries, 
+    fetch_datafile(COUNTRIES_URL), 
     "dailyDeaths", 
     "deaths",
     "country", 
@@ -221,7 +188,7 @@ get_daily_deaths_country <- function(json, fill_missing = TRUE) {
 
 get_cumulative_deaths_country <- function(json, fill_missing = TRUE) {
   get_data_for_geography(
-    json$countries, 
+    fetch_datafile(COUNTRIES_URL), 
     "dailyTotalDeaths", 
     "deaths",
     "country",
@@ -233,34 +200,31 @@ get_cumulative_deaths_country <- function(json, fill_missing = TRUE) {
 
 download_data <- function(dataset_dir = ".") {
   
-  # Get the latest datafile and parse the json
-  json <- fetch_datafile()
-  
   # Extract and save the daily cases
-  get_daily_cases_country(json) %>% 
+  get_daily_cases_country() %>% 
     write_csv(file.path(dataset_dir, "cv-daily-cases-country.csv"))
   
-  get_daily_cases_region(json) %>% 
+  get_daily_cases_region() %>% 
     write_csv(file.path(dataset_dir, "cv-daily-cases-region.csv"))
   
-  get_daily_cases_utla(json) %>% 
+  get_daily_cases_utla() %>% 
     write_csv(file.path(dataset_dir, "cv-daily-cases-utla.csv"))
   
   # Extract and save the cumulative cases
-  get_cumulative_cases_country(json) %>% 
+  get_cumulative_cases_country() %>% 
     write_csv(file.path(dataset_dir, "cv-cumulative-cases-country.csv"))
   
-  get_cumulative_cases_region(json) %>% 
+  get_cumulative_cases_region() %>% 
     write_csv(file.path(dataset_dir, "cv-cumulative-cases-region.csv"))
   
-  get_cumulative_cases_utla(json) %>% 
+  get_cumulative_cases_utla() %>% 
     write_csv(file.path(dataset_dir, "cv-cumulative-cases-utla.csv"))
   
   # Extract and save the daily deaths
-  get_daily_deaths_country(json) %>% 
+  get_daily_deaths_country() %>% 
     write_csv(file.path(dataset_dir, "cv-daily-deaths-country.csv"))
   
   # Extract and save the cumulative deaths
-  get_cumulative_deaths_country(json) %>% 
+  get_cumulative_deaths_country() %>% 
     write_csv(file.path(dataset_dir, "cv-cumulative-deaths-country.csv"))    
 }    

@@ -10,7 +10,7 @@ library(readxl)
 source("covid19_getdata.R")
 
 # Grab daily cases data
-json <- fetch_datafile()
+json <- fetch_datafile("https://coronavirus.data.gov.uk/downloads/json/coronavirus-cases_latest.json")
 d1 <- get_cumulative_cases_utla(json = json) %>%
       select(-value_name, -area_type) %>%
       rename(cum_cases = number)
@@ -32,7 +32,7 @@ week_no <- week(now)
 
 # URL for data set 
 u <- paste0("https://www.ons.gov.uk/file?uri=%2fpeoplepopulationandcommunity%2fhealthandsocialcare%2fcausesofdeath%2fdatasets%2fdeathregistrationsandoccurrencesbylocalauthorityandhealthboard%2f2020/lahbtablesweek",
-            week_no - 2, # 2 week delay on data
+            week_no - 4, # 2 week delay on data
             "new.xlsx")
 
 # Download file

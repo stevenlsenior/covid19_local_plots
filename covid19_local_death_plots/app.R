@@ -11,7 +11,7 @@ library(lubridate)
 source("covid19_getdata.R")
 
 # Grab daily cases data
-json <- fetch_datafile()
+json <- fetch_datafile("https://coronavirus.data.gov.uk/downloads/json/coronavirus-cases_latest.json")
 
 d1 <- get_cumulative_cases_utla(json = json) %>%
     select(-value_name, -area_type) %>%
@@ -33,9 +33,9 @@ now <- today()
 week_no <- week(now)
 
 # URL for data set 
-u <- paste0("https://www.ons.gov.uk/file?uri=%2fpeoplepopulationandcommunity%2fhealthandsocialcare%2fcausesofdeath%2fdatasets%2fdeathregistrationsandoccurrencesbylocalauthorityandhealthboard%2f2020/lahbtablesweek",
-            week_no - 3, # 2-3 week delay on data
-            "new.xlsx")
+u <- paste0("https://www.ons.gov.uk/file?uri=/peoplepopulationandcommunity/healthandsocialcare/causesofdeath/datasets/deathregistrationsandoccurrencesbylocalauthorityandhealthboard/2020/lahbtablesweek",
+            week_no - 1, # 2-3 week delay on data
+            ".xlsx")
 
 # Download file
 download.file(url = u,
