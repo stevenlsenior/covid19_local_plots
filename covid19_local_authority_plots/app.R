@@ -1,39 +1,43 @@
-# load packages
-library(shiny)
-library(tidyverse)
-library(lubridate)
-library(cowplot)
-library(tools)
-library(readxl)
+# A simple app for exploring the ONS death data for COVID-19 
+# across local authorities.
 
-# Source functions for getting data
+# Load packages
+require(shiny)
+require(tidyverse)
+require(readxl)
+require(lubridate)
+require(cowplot)
+require(zoo)
+
+#### Cases ####
 source("covid19_getdata.R")
 
 # Grab daily cases data
 json <- fetch_datafile("https://coronavirus.data.gov.uk/downloads/json/coronavirus-cases_latest.json")
+
 d1 <- get_cumulative_cases_utla(json = json) %>%
-      select(-value_name, -area_type) %>%
-      rename(cum_cases = number)
+  select(-value_name, -area_type) %>%
+  rename(cum_cases = number)
 
 
 d2 <- get_daily_cases_utla(json = json) %>%
-      select(-value_name, -area_type, -area_name) %>%
-      rename(new_cases = number)
+  select(-value_name, -area_type, -area_name) %>%
+  rename(new_cases = number)
 
-d <- merge(d1, d2, by = c("date", "area_code"))
+cases <- merge(d1, d2, by = c("date", "area_code"))
 
 rm(d1, d2)
 
-# Get deaths data from ONS
+#### Deaths ####
 
 # Get current week number
 now <- today()
 week_no <- week(now)
 
 # URL for data set 
-u <- paste0("https://www.ons.gov.uk/file?uri=%2fpeoplepopulationandcommunity%2fhealthandsocialcare%2fcausesofdeath%2fdatasets%2fdeathregistrationsandoccurrencesbylocalauthorityandhealthboard%2f2020/lahbtablesweek",
-            week_no - 4, # 2 week delay on data
-            "new.xlsx")
+u <- paste0("https://www.ons.gov.uk/file?uri=/peoplepopulationandcommunity/healthandsocialcare/causesofdeath/datasets/deathregistrationsandoccurrencesbylocalauthorityandhealthboard/2020/lahbtablesweek",
+            week_no - 2, # 2-3 week delay on data
+            ".xlsx")
 
 # Download file
 download.file(url = u,
@@ -41,7 +45,7 @@ download.file(url = u,
               method = "curl",
               mode = "wb")
 
-# LOAD DATA
+# Load data
 deaths <- read_excel(path = "covid19_deaths.xlsx",
                      sheet = 6,
                      skip = 3,
@@ -51,147 +55,304 @@ deaths <- read_excel(path = "covid19_deaths.xlsx",
 names(deaths) <- gsub(" ", "_", names(deaths))
 names(deaths) <- tolower(names(deaths))
 
+# Calculate dates for week endings
+year_start <- dmy("01/01/2020")
+deaths$week_end <- 7*deaths$week_number + year_start
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
-
-    # Application title
-    titlePanel("Local Authority Confirmed COVID-19 Cases"),
-
-    # Sidebar with a slider input for number of bins 
-    sidebarLayout(
-        sidebarPanel(
-            selectInput("la",
-                        "Select a local authority",
-                        choices = sort(unique(d$area_name)),
-                        selected = "Bury"),
-            
-            h4("Instructions:"),
-            
-            p("Select a local authority (a local government area in England). 
-			  The app will produce plots of daily new cases and total cases
-              of COVID-19."),
-            
-            h4("About:"),
-            
-            p("This app produces simple plots of the numbers of confirmed cases of
-              COVID-19, as reported on the PHE COVID-19 tracker. The data used is
-              drawn from a the PHE data using a script written by Oli Hawkins."),
-            
-            h4("Caveats:"),
-            
-            p("There are known data quality issues with the data source.
-              The numbers of confirmed cases are a function of the numbers of people
-              that are tested. Testing availability may vary between local authorities.
-              Testing availability has also changed over time.
-              This means that the results should be treated with caution. 
-              The plots produced here should be used for illustrative purposes only.
-              You have been warned."),
-
-            a(href = "https://github.com/stevenlsenior/covid19_local_plots",
-              "Link to source code on GitHub"),
-            
-            p(),
-            
-            a(href = "https://gist.github.com/olihawkins/6962c6df563e3dbea8917dbf6fd4ab01",
-              "Link to Oli Hawkins's excellent script on GitHub")
-            
-        ),
-
-        # Show a plot of the generated distribution
-        mainPanel(
-           plotOutput("la_case_plot"),
-           textOutput("summary")
-        )
-
+  
+  # Application title
+  titlePanel("COVID-19 deaths explorer"),
+  
+  # Sidebar with a slider input for number of bins 
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(inputId = "area",
+                  label = "Select a local authority",
+                  choices = sort(unique(deaths$area_name)),
+                  selected = "Bury"),
+      
+      selectInput(inputId = "cause",
+                  label = "Choose cause(s) of death to compare",
+                  choices = c("All causes", "COVID 19"),
+                  selected = "COVID 19"),
+      
+      checkboxGroupInput(inputId = "place",
+                         label = "Choose place(s) of death to compare",
+                         choices = sort(unique(deaths$place_of_death)),
+                         selected = c("Care home", "Hospital"))
+      
+    ),
+    
+    # Show a plot of the generated distribution
+    mainPanel(
+      mainPanel(
+        h4(strong("Cases")),
+        br(),
+        textOutput("case_summary"),
+        br(),
+        plotOutput("la_case_plot"),
+        br(),
+        br(),
+        h4(strong("Deaths")),
+        br(),
+        textOutput("death_summary"),
+        br(),
+        plotOutput("la_death_plot"),
+        width = 12
+      )
     )
+  )
 )
 
-# Define server logic
+# Define server logic required to draw the plot
 server <- function(input, output) {
+  
+  # Function for plotting
+  
+  output$la_case_plot <- renderPlot({
     
-    # Function for plotting
-    local_covid_plot <- function(la_name, data){
-
-        # Filter data to single local authority
-        d <- filter(data, area_name == la_name) 
-        
-        # Make a plot
-        g1 <- ggplot(data = d,
-                     aes(x = date,
-                         y = new_cases)) +
-            geom_bar(stat = "identity",
-                     fill = "darkblue") +
-            theme_minimal() +
-            labs(x = NULL,
-                 y = "New cases") +
-            theme(plot.caption = element_text(hjust = 0)) +
-            scale_y_continuous(breaks  = 1:max(d$new_cases)) +
-            theme(panel.ontop = TRUE,
-                  panel.grid.major.x = element_blank(),
-                  panel.grid.minor.x = element_blank(),
-                  panel.grid.major.y = element_line(size = 0.5, colour = "white"),
-                  panel.grid.minor.y = element_blank())
-        
-        g2 <- ggplot(data = d,
-                     aes(x = date,
-                         y = cum_cases)) +
-            geom_bar(stat = "identity",
-                     fill = "darkblue") +
-            theme_minimal() +
-            labs(x = NULL,
-                 y = "Total cases") +
-            theme(plot.caption = element_text(hjust = 0)) +
-            theme(panel.ontop = TRUE,
-                  panel.grid.major.x = element_blank(),
-                  panel.grid.minor.x = element_blank(),
-                  panel.grid.major.y = element_line(size = 0.5, colour = "white"),
-                  panel.grid.minor.y = element_line(size = 0.5, colour = "white"))
-        
-        g <- plot_grid(g1, g2,
-                       ncol = 1,
-                       rel_heights = c(0.5, 0.5))
-        
-        return(g)
-    }
+    # draw the plot
+    g_case_1 <- ggplot(data = filter(cases, area_name == input$area),
+                       aes(x = date,
+                           y = new_cases)) +
+      geom_bar(stat = "identity",
+               fill = "cyan4") +
+      geom_line(aes(y=rollmean(new_cases, 7, na.pad=TRUE))) +
+      labs(x = NULL,
+           y = NULL,
+           title = paste0("Confirmed cases of COVID-19 in ",
+                          input$area,
+                          " by date"),
+           subtitle = "Daily new cases (bars) plus 7-day rolling average (line)") +
+      theme_classic() +
+      theme(plot.title = element_text(face = "bold", size = 14),
+            plot.subtitle = element_text(size = 12, colour = "grey40"),
+            axis.title = element_text(size = 12),
+            axis.text = element_text(size = 12),
+            legend.title = element_text(face = "bold", size = 12),
+            legend.text = element_text(size = 12))
     
-    local_daily_covid <- function(la_name, data){
-        
-        # Ensure names are all lower case
-        la_name <- tolower(la_name)
-        
-        # Filter data to single local authority
-        d <- filter(data, area_name == la_name) 
     
-        # Get total cases, new cases,
-        total <- d$cum_cases[d$date == max(d$date)]
-        new <- d$new_cases[d$date == max(d$date)]
-        date <- max(d$date)
-        
-        # Return text summary
-        return(paste0("As of ",
-                      date,
-                      " there were ",
-                      total,
-                      " confirmed cases of COVID-19 in ",
-                      input$la,
-                      ". This was an increase of ",
-                      new,
-                      " cases on the previous day."))
-        
-    }
-
-    output$la_case_plot <- renderPlot({
-        # draw the plot
-        local_covid_plot(data = d, la_name = input$la)
+    g_case_2 <- ggplot(data = filter(cases, area_name == input$area),
+                       aes(x = date,
+                           y = cum_cases)) +
+      geom_bar(stat = "identity",
+               fill = "cyan4") +
+      geom_line(aes(y=rollmean(cum_cases, 7, na.pad=TRUE))) +
+      labs(x = NULL,
+           y = NULL,
+           title = paste0("Confirmed cases of COVID-19 in ",
+                          input$area,
+                          " by date"),
+           subtitle = "Cumulative cases by day (bars) and 7-day rolling average (line)") +
+      theme_classic() +
+      theme(plot.title = element_text(face = "bold", size = 14),
+            plot.subtitle = element_text(size = 12, colour = "grey40"),
+            axis.title = element_text(size = 12),
+            axis.text = element_text(size = 12),
+            legend.title = element_text(face = "bold", size = 12),
+            legend.text = element_text(size = 12))
+    
+    g_case_capt <- ggplot() + 
+      labs(caption = "Data source: PHE.") +
+      theme_classic() +
+      theme(plot.caption = element_text(size = 12))
+    
+    g_case <- plot_grid(g_case_1, g_case_2, ncol = 1, labels = "AUTO")
+    
+    plot_grid(g_case, g_case_capt, ncol = 1, rel_heights = c(1, 0.05))
+  })
+  
+  output$la_death_plot <- renderPlot(
+    height = 600,
+    {
+      # Tabulate deaths due to selected cause in selected area
+      death_table <- deaths %>% 
+        filter(cause_of_death == input$cause,
+               area_name == input$area,
+               place_of_death %in% input$place) %>%
+        group_by(place_of_death) %>%
+        summarise(total_deaths = sum(number_of_deaths))
+      
+      death_totals <- deaths %>%
+        filter(cause_of_death == input$cause,
+               area_name == input$area) %>%
+        group_by(week_end) %>%
+        summarise(total_deaths = sum(number_of_deaths))
+      
+      # Plot the deaths by cause
+      g_death_0 <- ggplot(data = death_totals,
+                          aes(x = week_end,
+                              y = total_deaths)) +
+        geom_point(colour = 9) +
+        geom_line(colour = 9) +
+        labs(x = NULL,
+             y = "no. of deaths",
+             title = paste0("Total weekly deaths due to ",
+                            input$cause,
+                            " in ",
+                            input$area)) +
+        guides(colour = FALSE) +
+        theme_classic() +
+        theme(plot.title = element_text(face = "bold", size = 14),
+              axis.title = element_text(size = 12),
+              axis.text = element_text(size = 12),
+              legend.title = element_text(face = "bold", size = 12),
+              legend.text = element_text(size = 12))
+      
+      g_death_1 <- ggplot(data = filter(deaths, 
+                                        area_name == input$area,
+                                        cause_of_death == input$cause,
+                                        place_of_death %in% input$place),
+                          aes(x = week_end,
+                              y = number_of_deaths,
+                              group = place_of_death,
+                              colour = place_of_death)) +
+        geom_point() +
+        geom_line() +
+        theme_classic() +
+        labs(x = NULL,
+             y = "no. of deaths",
+             colour = "place of death",
+             title = paste0("Weekly deaths due to ",
+                            input$cause,
+                            " in ",
+                            input$area,
+                            " by place of death")) +
+        theme(plot.title = element_text(face = "bold", size = 14),
+              axis.title = element_text(size = 12),
+              axis.text = element_text(size = 12),
+              legend.title = element_text(face = "bold", size = 12),
+              legend.text = element_text(size = 12),
+              legend.position = "bottom")
+      
+      g_death_2 <- ggplot(data = death_table,
+                          aes(x = place_of_death,
+                              y = total_deaths,
+                              colour = place_of_death,
+                              fill = place_of_death)) +
+        geom_bar(stat = "identity") +
+        theme_classic() +
+        guides(fill = FALSE,
+               colour = FALSE) +
+        labs(x = NULL,
+             y = "no. of deaths",
+             title = paste0("Deaths due to ",
+                            input$cause,
+                            " in ",
+                            input$area,
+                            " by place of death")) +
+        theme(plot.title = element_text(face = "bold", size = 14),
+              axis.title = element_text(size = 12),
+              axis.text = element_text(size = 12),
+              legend.title = element_text(face = "bold", size = 12),
+              legend.text = element_text(size = 12))
+      
+      g_death_capt <- ggplot() + 
+        labs(caption = "Data source: ONS.") +
+        theme_classic() +
+        theme(plot.caption = element_text(hjust = 0, size = 12))
+      
+      g_death <- plot_grid(g_death_0, g_death_1, g_death_2, ncol = 1, labels = "AUTO")
+      
+      plot_grid(g_death, g_death_capt, ncol = 1, rel_heights = c(1, 0.05))
     })
+  
+  output$case_summary <- renderText({
+    # get most recent date
+    date <- max(cases$date)
     
-    output$summary <- renderText({
-        # get the summary
-        local_daily_covid(data = d, 
-                          la_name = input$la)
-    })
-
+    # get new cases in last day
+    last_day <- cases %>%
+      filter(area_name == input$area) %>%
+      filter(date == max(date)) %>%
+      pull(new_cases)
+    
+    # get new cases in last 7 days
+    last_week <- cases %>%
+      filter(area_name == input$area) %>%
+      filter(date > max(date) - 7) %>%
+      pull(new_cases) %>%
+      sum()
+    
+    # get total cases
+    total_cases <- cases %>% 
+      filter(area_name == input$area) %>%
+      filter(date == max(date)) %>%
+      pull(cum_cases)
+    
+    # create text output
+    paste0("As of ",
+           date,
+           " there were ",
+           total_cases,
+           " cases of COVID-19 in ",
+           input$area,
+           ". This was an increase of ",
+           last_day,
+           " cases on the previous day and ",
+           last_week,
+           " cases over the previous week (an average of ",
+           round(last_week/7, digits = 1),
+           " new cases per day).")
+    
+  })
+  
+  output$death_summary <- renderText({
+    # get total deaths
+    total_deaths <- deaths %>% 
+      filter(area_name == input$area,
+             cause_of_death == input$cause) %>%
+      pull(number_of_deaths) %>%
+      sum()
+    
+    # get care home deaths
+    care_home_deaths <- deaths %>% 
+      filter(area_name == input$area,
+             cause_of_death == input$cause,
+             place_of_death == "Care home") %>%
+      pull(number_of_deaths) %>%
+      sum()
+    
+    # get hospital deaths
+    hospital_deaths <- deaths %>% 
+      filter(area_name == input$area,
+             cause_of_death == input$cause,
+             place_of_death == "Care home") %>%
+      pull(number_of_deaths) %>%
+      sum()
+    
+    # get deaths in the most recent week
+    last_week_deaths <- deaths %>%
+      filter(area_name == input$area,
+             cause_of_death == input$cause,
+             week_number == max(week_number)) %>%
+      pull(number_of_deaths) %>%
+      sum()
+    
+    # Calculate date for end of most recent week
+    year_start <- dmy("01/01/2020")
+    week_end <- year_start + max(deaths$week_number)*7
+    
+    # create text output
+    paste0("As of the week ending ",
+           week_end,
+           " there were ",
+           total_deaths,
+           " deaths due to ",
+           input$cause,
+           " in ",
+           input$area,
+           ". This included ",
+           care_home_deaths,
+           " in care homes and ",
+           hospital_deaths,
+           " in hospitals. This was an increase in ",
+           last_week_deaths,
+           " total deaths in the last week.")
+  })
 }
 
 # Run the application 
